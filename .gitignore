@@ -1,3 +1,9 @@
+# IMPORTANT - Never commit credentials
+.env
+credentials.txt
+*.key
+*.pem
+
 # Python
 __pycache__/
 *.py[cod]

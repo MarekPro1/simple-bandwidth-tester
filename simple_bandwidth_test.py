@@ -9,9 +9,10 @@ import json
 import time
 import sys
 
-# SSH Credentials
-USERNAME = "admin"
-PASSWORD = "Milostvns123!"
+# SSH Credentials - DO NOT HARDCODE IN PRODUCTION
+import os
+USERNAME = os.getenv('SSH_USERNAME', 'admin')
+PASSWORD = os.getenv('SSH_PASSWORD', '')  # Must be set as environment variable
 
 class SimpleBandwidthTester:
     def __init__(self, config_file="network_config.json"):
@@ -219,6 +220,10 @@ class SimpleBandwidthTester:
         print("="*60)
 
 def main():
+    if not PASSWORD:
+        print("ERROR: SSH_PASSWORD environment variable not set!")
+        print("Please set it using: set SSH_PASSWORD=your_password")
+        sys.exit(1)
     tester = SimpleBandwidthTester()
     tester.run_all_tests()
 

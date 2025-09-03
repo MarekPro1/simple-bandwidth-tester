@@ -78,11 +78,19 @@ Computer2->Computer1      :  2361.00 Mbps [OK]
 
 ## SSH Credentials
 
-Currently hardcoded in the script:
-- Username: `admin`
-- Password: `Milostvns123!`
+The script uses environment variables for security:
 
-To change, edit lines 12-13 in `simple_bandwidth_test.py`.
+```bash
+# Windows
+set SSH_USERNAME=admin
+set SSH_PASSWORD=your_password
+
+# Linux/Mac
+export SSH_USERNAME=admin
+export SSH_PASSWORD=your_password
+```
+
+**IMPORTANT**: Never commit passwords to version control!
 
 ## License
 
