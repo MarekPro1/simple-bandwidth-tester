@@ -314,7 +314,7 @@ class AdvancedNetworkMonitor:
                 result = self.run_advanced_test(comp1['ip'], comp1['name'], 
                                                comp2['ip'], comp2['name'], params)
                 if result:
-                    key = f"{comp1['name'][:8]:>8} -> {comp2['name'][:8]:<8}"
+                    key = f"{comp1['name']} -> {comp2['name']}"
                     test_results[test_type][key] = (result, max_theoretical)
             
             # Test reverse direction if bidirectional
@@ -322,7 +322,7 @@ class AdvancedNetworkMonitor:
                 result = self.run_advanced_test(comp2['ip'], comp2['name'],
                                                comp1['ip'], comp1['name'], params)
                 if result:
-                    key = f"{comp2['name'][:8]:>8} -> {comp1['name'][:8]:<8}"
+                    key = f"{comp2['name']} -> {comp1['name']}"
                     test_results[test_type][key] = (result, max_theoretical)
         
         # Display results in compact table
@@ -337,7 +337,7 @@ class AdvancedNetworkMonitor:
         
         # Display each connection's results
         for connection in set([k for t in test_results.values() for k in t.keys()]):
-            output = f"  {Colors.WHITE}{connection}{Colors.END}  "
+            output = f"  {Colors.WHITE}{connection:<30}{Colors.END}  "
             
             # TCP results
             if connection in test_results['tcp']:
@@ -353,7 +353,7 @@ class AdvancedNetworkMonitor:
                 else:
                     color = Colors.RED
                     
-                output += f"{color}{bandwidth:>6.0f}M{Colors.END} "
+                output += f"{color}{bandwidth:>6.0f}M ({util:>3.0f}%){Colors.END} "
                 
                 # Add retransmits if present
                 if result.get('retransmits') is not None and result['retransmits'] > 0:
