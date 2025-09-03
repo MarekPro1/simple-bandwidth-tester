@@ -1,0 +1,52 @@
+{
+  "devices": [
+    {
+      "name": "Main-Router",
+      "ip": "10.77.8.1",
+      "type": "mikrotik",
+      "location": "foh1",
+      "link_speed": "1Gbps"
+    },
+    {
+      "name": "foh1-audio-switch",
+      "ip": "10.77.9.3",
+      "type": "mikrotik",
+      "location": "foh1",
+      "link_speed": "10Gbps"
+    },
+    {
+      "name": "stage-a/v-switch",
+      "ip": "10.77.9.4",
+      "type": "mikrotik",
+      "location": "stage",
+      "link_speed": "10Gbps"
+    },
+    {
+      "name": "foh2-video-switch",
+      "ip": "10.77.9.5",
+      "type": "mikrotik",
+      "location": "foh2",
+      "link_speed": "10Gbps"
+    },
+    {
+      "name": "resolume-bridge",
+      "ip": "10.77.9.201",
+      "type": "computer",
+      "location": "stage",
+      "link_speed": "2.5Gbps"
+    },
+    {
+      "name": "strih-pc",
+      "ip": "10.77.9.202",
+      "type": "computer",
+      "location": "foh2",
+      "link_speed": "10Gbps"
+    }
+  ],
+  "test_settings": {
+    "expected_bandwidth_mbps": 1000,
+    "max_acceptable_packet_loss": 1,
+    "max_acceptable_latency_ms": 10,
+    "iperf_port": 5201
+  }
+}
