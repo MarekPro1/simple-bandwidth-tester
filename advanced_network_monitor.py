@@ -47,14 +47,15 @@ class AdvancedNetworkMonitor:
                 config = json.load(f)
                 # Only load computers, ignore switches for now
                 self.computers = [d for d in config['devices'] if d['type'] == 'computer']
-                print(f"\n{Colors.CYAN}{'='*80}")
-                print(f"  ADVANCED NETWORK MONITOR")
-                print(f"{'='*80}{Colors.END}")
-                print(f"{Colors.WHITE}Found {Colors.BOLD}{len(self.computers)}{Colors.END} {Colors.WHITE}computers to test:{Colors.END}\n")
-                for comp in self.computers:
-                    link_speed = comp.get('link_speed', 'Unknown')
-                    location = comp.get('location', 'Unknown')
-                    print(f"  {Colors.GREEN}>{Colors.END} {Colors.BOLD}{comp['name']:<15}{Colors.END} {Colors.GRAY}({comp['ip']:<15}){Colors.END} - {Colors.CYAN}{link_speed:<7}{Colors.END} @ {Colors.YELLOW}{location}{Colors.END}")
+                if not self.verbose:
+                    print(f"\n{Colors.CYAN}NETWORK MONITOR{Colors.END} - {len(self.computers)} devices")
+                else:
+                    print(f"\n{Colors.CYAN}{'='*60}")
+                    print(f"  ADVANCED NETWORK MONITOR")
+                    print(f"{'='*60}{Colors.END}")
+                    print(f"Found {len(self.computers)} computers:")
+                    for comp in self.computers:
+                        print(f"  • {comp['name']} ({comp['ip']}) - {comp.get('link_speed', 'Unknown')}")
         except Exception as e:
             print(f"{Colors.RED}Error loading config: {e}{Colors.END}")
             sys.exit(1)
@@ -242,16 +243,10 @@ class AdvancedNetworkMonitor:
     
     def run_comprehensive_test(self, comp1, comp2):
         """Run multiple test types between two computers"""
-        print(f"\n{Colors.BLUE}{'='*80}")
-        print(f"  Testing: {Colors.BOLD}{comp1['name']} <-> {comp2['name']}{Colors.END}")
-        print(f"{Colors.BLUE}{'='*80}{Colors.END}\n")
-        
         # Get theoretical max speed
         speed1 = self.get_link_speed(comp1['name'])
         speed2 = self.get_link_speed(comp2['name'])
         max_theoretical = min(speed1, speed2)
-        
-        print(f"  {Colors.GRAY}Theoretical maximum: {max_theoretical:.0f} Mbps{Colors.END}\n")
         
         all_results = {}
         
@@ -284,32 +279,98 @@ class AdvancedNetworkMonitor:
             }
         ]
         
+        # Store all results first, then display in organized table
+        test_results = {
+            'tcp': {},
+            'udp_jitter': {},
+            'packet_loss': {}
+        }
+        
         # Run tests for each configuration
         for test_config in test_suite:
             test_name = test_config['name']
             params = test_config['params']
             
-            print(f"  {Colors.CYAN}Running: {test_name}{Colors.END}")
+            # Determine test type for storage
+            if 'Jitter' in test_name:
+                test_type = 'udp_jitter'
+            elif 'Packet Loss' in test_name:
+                test_type = 'packet_loss'
+            else:
+                test_type = 'tcp'
             
             # Test comp1 -> comp2
             if self.verify_iperf_server(comp2['ip'], comp2['name']):
                 result = self.run_advanced_test(comp1['ip'], comp1['name'], 
                                                comp2['ip'], comp2['name'], params)
                 if result:
-                    key = f"{comp1['name']}->{comp2['name']} ({test_name})"
-                    all_results[key] = result
-                    self.print_test_result(key, result, max_theoretical)
+                    key = f"{comp1['name'][:8]:>8} -> {comp2['name'][:8]:<8}"
+                    test_results[test_type][key] = (result, max_theoretical)
             
             # Test reverse direction if bidirectional
             if test_config['bidirectional'] and self.verify_iperf_server(comp1['ip'], comp1['name']):
                 result = self.run_advanced_test(comp2['ip'], comp2['name'],
                                                comp1['ip'], comp1['name'], params)
                 if result:
-                    key = f"{comp2['name']}->{comp1['name']} ({test_name})"
-                    all_results[key] = result
-                    self.print_test_result(key, result, max_theoretical)
+                    key = f"{comp2['name'][:8]:>8} -> {comp1['name'][:8]:<8}"
+                    test_results[test_type][key] = (result, max_theoretical)
+        
+        # Display results in compact table
+        self.display_compact_results(test_results, comp1['name'], comp2['name'])
+        return test_results
+    
+    def display_compact_results(self, test_results, name1, name2):
+        """Display test results in compact table format"""
+        print(f"\n  {Colors.BOLD}{name1[:12]:>12} <-> {name2[:12]:<12}{Colors.END}")
+        print(f"  {Colors.GRAY}{'-'*50}{Colors.END}")
+        
+        # Display each connection's results
+        for connection in set([k for t in test_results.values() for k in t.keys()]):
+            output = f"  {Colors.WHITE}{connection}{Colors.END}  "
+            
+            # TCP results
+            if connection in test_results['tcp']:
+                result, max_speed = test_results['tcp'][connection]
+                bandwidth = result.get('bandwidth', 0)
+                util = (bandwidth / max_speed) * 100
+                
+                # Color based on utilization
+                if util >= 90:
+                    color = Colors.GREEN
+                elif util >= 70:
+                    color = Colors.YELLOW
+                else:
+                    color = Colors.RED
                     
-        return all_results
+                output += f"{color}{bandwidth:>6.0f}M{Colors.END} "
+                
+                # Add retransmits if present
+                if result.get('retransmits') is not None and result['retransmits'] > 0:
+                    output += f"{Colors.YELLOW}R:{result['retransmits']}{Colors.END} "
+            else:
+                output += f"{'---':>7} "
+            
+            # Jitter results
+            if connection in test_results['udp_jitter']:
+                result, _ = test_results['udp_jitter'][connection]
+                jitter = result.get('jitter', 0)
+                loss = result.get('packet_loss', 0)
+                
+                # Jitter color (Dante needs <1ms, NDI <5ms)
+                if jitter < 1:
+                    j_color = Colors.GREEN
+                elif jitter < 5:
+                    j_color = Colors.YELLOW
+                else:
+                    j_color = Colors.RED
+                    
+                output += f"J:{j_color}{jitter:.2f}ms{Colors.END} "
+                
+                # Packet loss (must be 0 for AV)
+                if loss > 0:
+                    output += f"{Colors.RED}L:{loss:.1f}%{Colors.END} "
+            
+            print(output)
     
     def print_test_result(self, connection, result, max_speed):
         """Print detailed test result"""
@@ -369,21 +430,15 @@ class AdvancedNetworkMonitor:
             print(f"{Colors.RED}Need at least 2 computers to run tests{Colors.END}")
             return
         
+        print(f"\n{Colors.GRAY}Legend: Bandwidth(Mbps) | J:Jitter(ms) | L:Loss(%) | R:Retransmits{Colors.END}")
+        print(f"{Colors.GRAY}Target: J<1ms (Dante) J<5ms (NDI) | L=0% | R=0{Colors.END}")
+        
         # Run comprehensive tests for each pair
         for i in range(len(self.computers)):
             for j in range(i+1, len(self.computers)):
                 self.run_comprehensive_test(self.computers[i], self.computers[j])
         
-        print(f"\n{Colors.CYAN}{'='*80}{Colors.END}")
-        print(f"  {Colors.BOLD}TEST COMPLETE{Colors.END}")
-        print(f"{Colors.CYAN}{'='*80}{Colors.END}")
-        
-        # Print summary legend
-        print(f"\n{Colors.GRAY}Metrics for Dante/NDI Networks:{Colors.END}")
-        print(f"  • {Colors.BOLD}Jitter{Colors.END}: Must be <1ms for Dante, <5ms for NDI")
-        print(f"  • {Colors.BOLD}Packet Loss{Colors.END}: Must be 0% for Dante/NDI")
-        print(f"  • {Colors.BOLD}Bandwidth{Colors.END}: ~50Mbps per NDI stream, ~6Mbps per Dante flow")
-        print(f"  • {Colors.BOLD}Retransmits{Colors.END}: Should be 0 for stable AV streaming")
+        print(f"\n{Colors.CYAN}{'-'*50}{Colors.END}")
 
 def main():
     parser = argparse.ArgumentParser(description='Advanced Network Monitoring Tool')
