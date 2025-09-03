@@ -136,6 +136,26 @@ class AdvancedNetworkMonitor:
                 print(f"  {Colors.RED}X Error checking server on {server_name}: {e}{Colors.END}")
             return False
     
+    def find_iperf3_path(self, ssh):
+        """Find working iperf3 path on the system"""
+        paths = [
+            r'C:\iperf3\iperf3.19.1_64\iperf3.exe',
+            r'C:\iperf3_new\iperf3.exe',
+            r'C:\iperf3_fresh\iperf3.19.1_64\iperf3.exe',
+            r'C:\iperf3_manual\iperf3.19.1_64\iperf3.exe',
+            r'C:\iperf3\iperf3.exe'
+        ]
+        
+        for path in paths:
+            stdin, stdout, stderr = ssh.exec_command(f'if exist "{path}" echo FOUND')
+            if "FOUND" in stdout.read().decode():
+                # Test if it actually runs
+                stdin, stdout, stderr = ssh.exec_command(f'"{path}" --version 2>&1', timeout=5)
+                output = stdout.read().decode() + stderr.read().decode()
+                if "iperf" in output.lower() and "denied" not in output.lower():
+                    return path
+        return None
+    
     def run_advanced_test(self, client_ip, client_name, server_ip, server_name, test_params):
         """Run advanced iperf3 test with specified parameters"""
         ssh = self.ssh_connect(client_ip, show_error=False)
@@ -144,7 +164,10 @@ class AdvancedNetworkMonitor:
             return None
             
         try:
-            iperf_path = r'C:\iperf3\iperf3.19.1_64\iperf3.exe'
+            # Find working iperf3 path
+            iperf_path = self.find_iperf3_path(ssh)
+            if not iperf_path:
+                iperf_path = r'C:\iperf3\iperf3.19.1_64\iperf3.exe'  # fallback to default
             
             # Build iperf3 command with advanced parameters
             cmd_parts = [f'"{iperf_path}"', f'-c {server_ip}']
@@ -189,7 +212,10 @@ class AdvancedNetworkMonitor:
                 return None
             
             if "Access is denied" in errors:
-                print(f"  {Colors.RED}X Access denied on {client_name} - cannot run iperf3 (permission issue){Colors.END}")
+                print(f"  {Colors.YELLOW}! {client_name} has iperf3 permission issues - skipping test from this host{Colors.END}")
+                if self.verbose:
+                    print(f"  {Colors.GRAY}[DEBUG] Access denied error - likely antivirus or policy restriction{Colors.END}")
+                    print(f"  {Colors.GRAY}[DEBUG] Tests TO this host will still work{Colors.END}")
                 ssh.close()
                 return None
             
