@@ -47,15 +47,37 @@ class AdvancedNetworkMonitor:
                 config = json.load(f)
                 # Only load computers, ignore switches for now
                 self.computers = [d for d in config['devices'] if d['type'] == 'computer']
-                if not self.verbose:
-                    print(f"\n{Colors.CYAN}NETWORK MONITOR{Colors.END} - {len(self.computers)} devices")
-                else:
-                    print(f"\n{Colors.CYAN}{'='*60}")
-                    print(f"  ADVANCED NETWORK MONITOR")
-                    print(f"{'='*60}{Colors.END}")
-                    print(f"Found {len(self.computers)} computers:")
-                    for comp in self.computers:
-                        print(f"  • {comp['name']} ({comp['ip']}) - {comp.get('link_speed', 'Unknown')}")
+                
+                # Always show device list nicely
+                print(f"\n{Colors.CYAN}{'='*70}")
+                print(f"{'NETWORK PERFORMANCE MONITOR':^70}")
+                print(f"{'='*70}{Colors.END}\n")
+                
+                print(f"{Colors.WHITE}Configured Devices ({len(self.computers)} computers):{Colors.END}\n")
+                
+                # Display devices in a nice table format
+                print(f"  {Colors.GRAY}{'Name':<15} {'IP Address':<15} {'Link Speed':<10} {'Location':<10}{Colors.END}")
+                print(f"  {Colors.GRAY}{'-'*15} {'-'*15} {'-'*10} {'-'*10}{Colors.END}")
+                
+                for comp in self.computers:
+                    name = comp['name'][:15]
+                    ip = comp['ip']
+                    link_speed = comp.get('link_speed', 'Unknown')
+                    location = comp.get('location', 'Unknown')
+                    
+                    # Color code based on link speed
+                    if '10Gbps' in link_speed:
+                        speed_color = Colors.GREEN
+                    elif '2.5Gbps' in link_speed or '5Gbps' in link_speed:
+                        speed_color = Colors.CYAN
+                    else:
+                        speed_color = Colors.YELLOW
+                    
+                    print(f"  {Colors.BOLD}{name:<15}{Colors.END} "
+                          f"{Colors.GRAY}{ip:<15}{Colors.END} "
+                          f"{speed_color}{link_speed:<10}{Colors.END} "
+                          f"{Colors.YELLOW}{location:<10}{Colors.END}")
+                
         except Exception as e:
             print(f"{Colors.RED}Error loading config: {e}{Colors.END}")
             sys.exit(1)
@@ -309,8 +331,9 @@ class AdvancedNetworkMonitor:
     
     def display_compact_results(self, test_results, name1, name2):
         """Display test results in compact table format"""
-        print(f"\n  {Colors.BOLD}{name1[:12]:>12} <-> {name2[:12]:<12}{Colors.END}")
-        print(f"  {Colors.GRAY}{'-'*50}{Colors.END}")
+        print(f"\n{Colors.BLUE}{'-'*70}{Colors.END}")
+        print(f"{Colors.BOLD}  Testing: {name1} <-> {name2}{Colors.END}")
+        print(f"{Colors.BLUE}{'-'*70}{Colors.END}")
         
         # Display each connection's results
         for connection in set([k for t in test_results.values() for k in t.keys()]):
@@ -418,15 +441,31 @@ class AdvancedNetworkMonitor:
             print(f"{Colors.RED}Need at least 2 computers to run tests{Colors.END}")
             return
         
-        print(f"\n{Colors.GRAY}Testing at 90% of link speed to find issues{Colors.END}")
-        print(f"{Colors.GRAY}Targets: Jitter<1ms | Loss=0% | No retransmits{Colors.END}")
+        print(f"\n{Colors.CYAN}{'='*70}")
+        print(f"{'STARTING TESTS':^70}")
+        print(f"{'='*70}{Colors.END}\n")
+        
+        print(f"{Colors.GRAY}Test Configuration:{Colors.END}")
+        print(f"  • TCP Bandwidth Test (5 seconds)")
+        print(f"  • UDP Test at 90% link speed (5 seconds)")
+        print(f"  • Target: Jitter <1ms, Loss 0%, No retransmits")
         
         # Run comprehensive tests for each pair
+        test_count = 0
         for i in range(len(self.computers)):
             for j in range(i+1, len(self.computers)):
+                test_count += 1
                 self.run_comprehensive_test(self.computers[i], self.computers[j])
         
-        print(f"\n{Colors.CYAN}{'-'*50}{Colors.END}")
+        print(f"\n{Colors.CYAN}{'='*70}")
+        print(f"{'TESTS COMPLETE':^70}")
+        print(f"{'='*70}{Colors.END}")
+        
+        # Summary
+        print(f"\n{Colors.GRAY}Key Indicators:{Colors.END}")
+        print(f"  {Colors.GREEN}Green{Colors.END}: Excellent (>90% bandwidth, <1ms jitter)")
+        print(f"  {Colors.YELLOW}Yellow{Colors.END}: Acceptable (70-90% bandwidth, <5ms jitter)")
+        print(f"  {Colors.RED}Red{Colors.END}: Issues detected (check loss/retransmits)")
 
 def main():
     parser = argparse.ArgumentParser(description='Advanced Network Monitoring Tool')
