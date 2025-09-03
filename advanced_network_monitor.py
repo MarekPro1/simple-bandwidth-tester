@@ -354,7 +354,7 @@ class AdvancedNetworkMonitor:
         if tcp_result:
             tcp_bw = tcp_result.get('bandwidth', 0)
             tcp_util = (tcp_bw / tcp_max) * 100 if tcp_max > 0 else 0
-            retrans = tcp_result.get('retransmits', 0)
+            retrans = tcp_result.get('retransmits')
             
             # TCP color coding
             if tcp_util >= 90:
@@ -365,7 +365,7 @@ class AdvancedNetworkMonitor:
                 tcp_color = Colors.RED
             
             row += f"T:{tcp_color}{tcp_bw:4.0f}M/{tcp_util:3.0f}%{Colors.END}"
-            if retrans > 0:
+            if retrans is not None and retrans > 0:
                 row += f"{Colors.YELLOW}(R{retrans}){Colors.END}"
             row += " "
         else:
@@ -394,18 +394,21 @@ class AdvancedNetworkMonitor:
             else:
                 j_color = Colors.RED
             
-            # Loss indicator
+            # Loss indicator - always show
             if loss > 1:
-                loss_indicator = f"{Colors.RED}!L{loss:.1f}%{Colors.END}"
+                loss_color = Colors.RED
+                loss_str = f"L:{loss:.1f}%"
             elif loss > 0.01:
-                loss_indicator = f"{Colors.YELLOW}L{loss:.2f}%{Colors.END}"
+                loss_color = Colors.YELLOW
+                loss_str = f"L:{loss:.2f}%"
             else:
-                loss_indicator = ""
+                loss_color = Colors.GREEN
+                loss_str = f"L:{loss:.2f}%"
                 
             row += f"U:{udp_color}{udp_bw:4.0f}M/{udp_util:3.0f}%{Colors.END} "
-            row += f"J:{j_color}{jitter:4.2f}ms{Colors.END} {loss_indicator}"
+            row += f"J:{j_color}{jitter:4.2f}ms{Colors.END} {loss_color}{loss_str}{Colors.END}"
         else:
-            row += f"U:{Colors.GRAY}----/---%{Colors.END} J:{Colors.GRAY}---ms{Colors.END}"
+            row += f"U:{Colors.GRAY}----/---%{Colors.END} J:{Colors.GRAY}----ms{Colors.END} {Colors.GRAY}L:---%{Colors.END}"
         
         print(row)
     
