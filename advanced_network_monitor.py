@@ -250,7 +250,7 @@ class AdvancedNetworkMonitor:
         
         all_results = {}
         
-        # Test suite optimized for Dante/NDI networks
+        # Test suite optimized for network stress testing
         test_suite = [
             {
                 'name': 'TCP Bandwidth',
@@ -258,24 +258,14 @@ class AdvancedNetworkMonitor:
                 'bidirectional': True
             },
             {
-                'name': 'UDP Jitter Test (Dante/NDI simulation)',
+                'name': 'UDP Jitter/Loss Test',
                 'params': {
                     'duration': 5, 
                     'udp': True, 
-                    'bandwidth': '50M',  # Typical Dante/NDI stream
-                    'length': 1400  # Packet size for AV networks
+                    'bandwidth': f'{int(max_theoretical * 0.9)}M',  # 90% of link speed
+                    'length': 1400  # Standard packet size
                 },
                 'bidirectional': True
-            },
-            {
-                'name': 'Packet Loss Test',
-                'params': {
-                    'duration': 5,
-                    'udp': True,
-                    'bandwidth': '100M',
-                    'length': 188  # Small packets to stress test
-                },
-                'bidirectional': False
             }
         ]
         
@@ -292,10 +282,8 @@ class AdvancedNetworkMonitor:
             params = test_config['params']
             
             # Determine test type for storage
-            if 'Jitter' in test_name:
+            if 'UDP' in test_name:
                 test_type = 'udp_jitter'
-            elif 'Packet Loss' in test_name:
-                test_type = 'packet_loss'
             else:
                 test_type = 'tcp'
             
@@ -430,8 +418,8 @@ class AdvancedNetworkMonitor:
             print(f"{Colors.RED}Need at least 2 computers to run tests{Colors.END}")
             return
         
-        print(f"\n{Colors.GRAY}Legend: Bandwidth(Mbps) | J:Jitter(ms) | L:Loss(%) | R:Retransmits{Colors.END}")
-        print(f"{Colors.GRAY}Target: J<1ms (Dante) J<5ms (NDI) | L=0% | R=0{Colors.END}")
+        print(f"\n{Colors.GRAY}Testing at 90% of link speed to find issues{Colors.END}")
+        print(f"{Colors.GRAY}Targets: Jitter<1ms | Loss=0% | No retransmits{Colors.END}")
         
         # Run comprehensive tests for each pair
         for i in range(len(self.computers)):
