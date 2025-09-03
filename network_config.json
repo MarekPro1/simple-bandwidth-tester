@@ -48,8 +48,21 @@
       "type": "computer",
       "location": "foh1",
       "link_speed": "1Gbps"
+    },
+    {
+      "name": "stream-snv",
+      "ip": "10.77.9.204",
+      "type": "computer",
+      "location": "foh2",
+      "link_speed": "1Gbps"
+    },
+    {
+      "name": "mbc-snv",
+      "ip": "10.77.9.232",
+      "type": "computer",
+      "location": "foh2",
+      "link_speed": "1Gbps"
     }
-
   ],
   "test_settings": {
     "expected_bandwidth_mbps": 1000,
