@@ -89,13 +89,21 @@ class AdvancedNetworkMonitor:
         try:
             if self.verbose:
                 print(f"  {Colors.GRAY}[DEBUG] Connecting to {ip}...{Colors.END}")
-            ssh.connect(ip, username=self.username, password=self.password, timeout=10)
+            # Disable key-based auth to force password authentication
+            ssh.connect(ip, username=self.username, password=self.password, 
+                       timeout=10, look_for_keys=False, allow_agent=False)
             if self.verbose:
                 print(f"  {Colors.GREEN}[DEBUG] Connected successfully{Colors.END}")
             return ssh
+        except paramiko.AuthenticationException as e:
+            if show_error:
+                print(f"  {Colors.RED}X Authentication failed for {ip}: Check username/password{Colors.END}")
+            elif self.verbose:
+                print(f"  {Colors.RED}[DEBUG] Auth failed for {ip}: {e}{Colors.END}")
+            return None
         except Exception as e:
             if show_error:
-                print(f"  {Colors.RED}✗ Cannot connect to {ip}: {str(e).split(',')[0]}{Colors.END}")
+                print(f"  {Colors.RED}X Cannot connect to {ip}: {str(e).split(',')[0]}{Colors.END}")
             elif self.verbose:
                 print(f"  {Colors.RED}[DEBUG] Failed to connect to {ip}: {e}{Colors.END}")
             return None
@@ -105,7 +113,7 @@ class AdvancedNetworkMonitor:
         ssh = self.ssh_connect(server_ip, show_error=False)
         if not ssh:
             if server_name:
-                print(f"  {Colors.RED}✗ Cannot verify server on {server_name} - SSH connection failed{Colors.END}")
+                print(f"  {Colors.RED}X Cannot verify server on {server_name} - SSH connection failed{Colors.END}")
             return False
             
         try:
@@ -125,14 +133,14 @@ class AdvancedNetworkMonitor:
         except Exception as e:
             ssh.close()
             if server_name:
-                print(f"  {Colors.RED}✗ Error checking server on {server_name}: {e}{Colors.END}")
+                print(f"  {Colors.RED}X Error checking server on {server_name}: {e}{Colors.END}")
             return False
     
     def run_advanced_test(self, client_ip, client_name, server_ip, server_name, test_params):
         """Run advanced iperf3 test with specified parameters"""
         ssh = self.ssh_connect(client_ip, show_error=False)
         if not ssh:
-            print(f"  {Colors.RED}✗ Cannot run test from {client_name} - SSH connection failed{Colors.END}")
+            print(f"  {Colors.RED}X Cannot run test from {client_name} - SSH connection failed{Colors.END}")
             return None
             
         try:
@@ -176,17 +184,17 @@ class AdvancedNetworkMonitor:
             
             # Check for common errors
             if "Connection refused" in errors or "Connection refused" in output:
-                print(f"  {Colors.RED}✗ Connection refused to {server_name} - server not accepting connections{Colors.END}")
+                print(f"  {Colors.RED}X Connection refused to {server_name} - server not accepting connections{Colors.END}")
                 ssh.close()
                 return None
             
             if "Access is denied" in errors:
-                print(f"  {Colors.RED}✗ Access denied on {client_name} - cannot run iperf3 (permission issue){Colors.END}")
+                print(f"  {Colors.RED}X Access denied on {client_name} - cannot run iperf3 (permission issue){Colors.END}")
                 ssh.close()
                 return None
             
             if "cannot be found" in errors or "not recognized" in errors:
-                print(f"  {Colors.RED}✗ iperf3 not found on {client_name} - needs installation{Colors.END}")
+                print(f"  {Colors.RED}X iperf3 not found on {client_name} - needs installation{Colors.END}")
                 ssh.close()
                 return None
             
