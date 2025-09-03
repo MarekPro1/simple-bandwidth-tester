@@ -59,7 +59,7 @@ class AdvancedNetworkMonitor:
             print(f"{Colors.RED}Error loading config: {e}{Colors.END}")
             sys.exit(1)
             
-    def ssh_connect(self, ip):
+    def ssh_connect(self, ip, show_error=True):
         """Create SSH connection"""
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -71,14 +71,18 @@ class AdvancedNetworkMonitor:
                 print(f"  {Colors.GREEN}[DEBUG] Connected successfully{Colors.END}")
             return ssh
         except Exception as e:
-            if self.verbose:
+            if show_error:
+                print(f"  {Colors.RED}✗ Cannot connect to {ip}: {str(e).split(',')[0]}{Colors.END}")
+            elif self.verbose:
                 print(f"  {Colors.RED}[DEBUG] Failed to connect to {ip}: {e}{Colors.END}")
             return None
             
-    def verify_iperf_server(self, server_ip):
+    def verify_iperf_server(self, server_ip, server_name=None):
         """Verify that iperf3 server is running"""
-        ssh = self.ssh_connect(server_ip)
+        ssh = self.ssh_connect(server_ip, show_error=False)
         if not ssh:
+            if server_name:
+                print(f"  {Colors.RED}✗ Cannot verify server on {server_name} - SSH connection failed{Colors.END}")
             return False
             
         try:
@@ -88,22 +92,24 @@ class AdvancedNetworkMonitor:
             
             is_listening = "5201" in netstat_output and "LISTENING" in netstat_output
             
-            if self.verbose:
-                if is_listening:
-                    print(f"  {Colors.GREEN}[DEBUG] Server ready on {server_ip}{Colors.END}")
-                else:
-                    print(f"  {Colors.RED}[DEBUG] Server NOT running on {server_ip}{Colors.END}")
+            if not is_listening and server_name:
+                print(f"  {Colors.YELLOW}⚠ No iperf3 server running on {server_name} ({server_ip}){Colors.END}")
+            elif self.verbose and is_listening:
+                print(f"  {Colors.GREEN}[DEBUG] Server ready on {server_ip}{Colors.END}")
             
             return is_listening
                 
         except Exception as e:
             ssh.close()
+            if server_name:
+                print(f"  {Colors.RED}✗ Error checking server on {server_name}: {e}{Colors.END}")
             return False
     
     def run_advanced_test(self, client_ip, client_name, server_ip, server_name, test_params):
         """Run advanced iperf3 test with specified parameters"""
-        ssh = self.ssh_connect(client_ip)
+        ssh = self.ssh_connect(client_ip, show_error=False)
         if not ssh:
+            print(f"  {Colors.RED}✗ Cannot run test from {client_name} - SSH connection failed{Colors.END}")
             return None
             
         try:
@@ -123,6 +129,8 @@ class AdvancedNetworkMonitor:
             if test_params.get('udp'):
                 cmd_parts.append('-u')  # UDP test for jitter/loss
                 cmd_parts.append(f'-b {test_params.get("bandwidth", "100M")}')  # Target bandwidth for UDP
+                if test_params.get('length'):
+                    cmd_parts.append(f'-l {test_params["length"]}')  # Packet length
                 
             if test_params.get('reverse'):
                 cmd_parts.append('-R')  # Reverse test (server sends)
@@ -143,8 +151,19 @@ class AdvancedNetworkMonitor:
             output = stdout.read().decode()
             errors = stderr.read().decode()
             
+            # Check for common errors
             if "Connection refused" in errors or "Connection refused" in output:
-                print(f"  {Colors.RED}Cannot connect to server{Colors.END}")
+                print(f"  {Colors.RED}✗ Connection refused to {server_name} - server not accepting connections{Colors.END}")
+                ssh.close()
+                return None
+            
+            if "Access is denied" in errors:
+                print(f"  {Colors.RED}✗ Access denied on {client_name} - cannot run iperf3 (permission issue){Colors.END}")
+                ssh.close()
+                return None
+            
+            if "cannot be found" in errors or "not recognized" in errors:
+                print(f"  {Colors.RED}✗ iperf3 not found on {client_name} - needs installation{Colors.END}")
                 ssh.close()
                 return None
             
@@ -236,21 +255,31 @@ class AdvancedNetworkMonitor:
         
         all_results = {}
         
-        # Test suite configuration
+        # Test suite optimized for Dante/NDI networks
         test_suite = [
             {
-                'name': 'TCP Bandwidth (Single Stream)',
-                'params': {'duration': 10},
+                'name': 'TCP Bandwidth',
+                'params': {'duration': 5},
                 'bidirectional': True
             },
             {
-                'name': 'TCP Bandwidth (8 Parallel Streams)',
-                'params': {'duration': 10, 'parallel': 8},
+                'name': 'UDP Jitter Test (Dante/NDI simulation)',
+                'params': {
+                    'duration': 5, 
+                    'udp': True, 
+                    'bandwidth': '50M',  # Typical Dante/NDI stream
+                    'length': 1400  # Packet size for AV networks
+                },
                 'bidirectional': True
             },
             {
-                'name': 'UDP Latency/Jitter Test',
-                'params': {'duration': 10, 'udp': True, 'bandwidth': f'{int(max_theoretical*0.8)}M'},
+                'name': 'Packet Loss Test',
+                'params': {
+                    'duration': 5,
+                    'udp': True,
+                    'bandwidth': '100M',
+                    'length': 188  # Small packets to stress test
+                },
                 'bidirectional': False
             }
         ]
@@ -263,7 +292,7 @@ class AdvancedNetworkMonitor:
             print(f"  {Colors.CYAN}Running: {test_name}{Colors.END}")
             
             # Test comp1 -> comp2
-            if self.verify_iperf_server(comp2['ip']):
+            if self.verify_iperf_server(comp2['ip'], comp2['name']):
                 result = self.run_advanced_test(comp1['ip'], comp1['name'], 
                                                comp2['ip'], comp2['name'], params)
                 if result:
@@ -272,7 +301,7 @@ class AdvancedNetworkMonitor:
                     self.print_test_result(key, result, max_theoretical)
             
             # Test reverse direction if bidirectional
-            if test_config['bidirectional'] and self.verify_iperf_server(comp1['ip']):
+            if test_config['bidirectional'] and self.verify_iperf_server(comp1['ip'], comp1['name']):
                 result = self.run_advanced_test(comp2['ip'], comp2['name'],
                                                comp1['ip'], comp1['name'], params)
                 if result:
@@ -350,12 +379,11 @@ class AdvancedNetworkMonitor:
         print(f"{Colors.CYAN}{'='*80}{Colors.END}")
         
         # Print summary legend
-        print(f"\n{Colors.GRAY}Metrics Explanation:{Colors.END}")
-        print(f"  • {Colors.BOLD}Bandwidth{Colors.END}: Data transfer rate (higher is better)")
-        print(f"  • {Colors.BOLD}Jitter{Colors.END}: Variation in latency (lower is better, <20ms good)")
-        print(f"  • {Colors.BOLD}Packet Loss{Colors.END}: Lost packets (lower is better, <1% good)")
-        print(f"  • {Colors.BOLD}Retransmits{Colors.END}: TCP retransmissions (lower is better)")
-        print(f"  • {Colors.BOLD}RTT{Colors.END}: Round Trip Time (lower is better)")
+        print(f"\n{Colors.GRAY}Metrics for Dante/NDI Networks:{Colors.END}")
+        print(f"  • {Colors.BOLD}Jitter{Colors.END}: Must be <1ms for Dante, <5ms for NDI")
+        print(f"  • {Colors.BOLD}Packet Loss{Colors.END}: Must be 0% for Dante/NDI")
+        print(f"  • {Colors.BOLD}Bandwidth{Colors.END}: ~50Mbps per NDI stream, ~6Mbps per Dante flow")
+        print(f"  • {Colors.BOLD}Retransmits{Colors.END}: Should be 0 for stable AV streaming")
 
 def main():
     parser = argparse.ArgumentParser(description='Advanced Network Monitoring Tool')
