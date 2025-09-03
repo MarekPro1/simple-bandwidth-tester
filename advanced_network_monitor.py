@@ -249,7 +249,10 @@ class AdvancedNetworkMonitor:
             'packet_loss': None,
             'cpu_usage': None,
             'retransmits': None,
-            'rtt': None
+            'rtt': None,
+            'cwnd': None,  # Congestion window
+            'mss': None,    # Maximum segment size
+            'pmtu': None    # Path MTU
         }
         
         try:
@@ -261,6 +264,8 @@ class AdvancedNetworkMonitor:
                 results['bandwidth'] = streams.get('bits_per_second', 0) / 1000000  # Convert to Mbps
                 results['jitter'] = streams.get('jitter_ms', 0)
                 results['packet_loss'] = streams.get('lost_percent', 0)
+                results['packets_sent'] = streams.get('packets', 0)
+                results['packets_lost'] = streams.get('lost_packets', 0)
             else:
                 # TCP test results
                 sum_sent = end_data.get('sum_sent', {})
@@ -284,12 +289,30 @@ class AdvancedNetworkMonitor:
                         'remote': cpu_data.get('remote_total', 0)
                     }
                 
-                # Try to get RTT from streams
+                # Try to get RTT and TCP metrics from streams
                 streams = end_data.get('streams', [])
                 if streams and len(streams) > 0:
-                    sender = streams[0].get('sender', {})
+                    stream = streams[0]
+                    sender = stream.get('sender', {})
+                    
+                    # Debug: Print available keys in verbose mode
+                    if self.verbose:
+                        print(f"  {Colors.GRAY}[DEBUG] TCP stream keys: {list(sender.keys())[:10]}{Colors.END}")
+                    
                     if 'mean_rtt' in sender:
                         results['rtt'] = sender.get('mean_rtt', 0) / 1000  # Convert to ms
+                    if 'max_snd_cwnd' in sender:
+                        results['cwnd'] = sender.get('max_snd_cwnd', 0) / 1024  # Convert to KB
+                    if 'max_rtt' in sender:
+                        results['max_rtt'] = sender.get('max_rtt', 0) / 1000  # Convert to ms
+                    if 'min_rtt' in sender:
+                        results['min_rtt'] = sender.get('min_rtt', 0) / 1000  # Convert to ms
+                        
+                # Get connection info
+                connected = json_data.get('start', {}).get('connected', [])
+                if connected and len(connected) > 0:
+                    results['mss'] = connected[0].get('mss', None)
+                    results['pmtu'] = connected[0].get('pmtu', None)
                         
         except Exception as e:
             if self.verbose:
@@ -444,6 +467,37 @@ class AdvancedNetworkMonitor:
         else:
             row += f"U:{Colors.GRAY}----/---%{Colors.END} J:{Colors.GRAY}----ms{Colors.END} {Colors.GRAY}L:---%{Colors.END}"
         
+        # Additional metrics (from either TCP or UDP result)
+        result = tcp_result if tcp_result else udp_result
+        
+        if result:
+            # RTT (Round Trip Time) - TCP only
+            if result.get('rtt') is not None:
+                rtt = result['rtt']
+                if rtt < 1:
+                    rtt_color = Colors.GREEN
+                elif rtt < 10:
+                    rtt_color = Colors.YELLOW
+                else:
+                    rtt_color = Colors.RED
+                row += f" RTT:{rtt_color}{rtt:.1f}ms{Colors.END}"
+            
+            # CPU Usage
+            if result.get('cpu_usage'):
+                cpu_local = result['cpu_usage'].get('local', 0)
+                cpu_remote = result['cpu_usage'].get('remote', 0)
+                cpu_color = Colors.GREEN if cpu_local < 50 else Colors.YELLOW if cpu_local < 80 else Colors.RED
+                row += f" CPU:{cpu_color}{cpu_local:.0f}%/{cpu_remote:.0f}%{Colors.END}"
+            
+            # Congestion Window (TCP only)
+            if result.get('cwnd') is not None:
+                cwnd = result['cwnd']
+                row += f" CW:{Colors.CYAN}{cwnd:.0f}KB{Colors.END}"
+            
+            # MSS/MTU info (TCP only)
+            if result.get('mss'):
+                row += f" MSS:{Colors.GRAY}{result['mss']}{Colors.END}"
+            
         print(row)
     
     def print_test_result(self, connection, result, max_speed):
@@ -504,13 +558,13 @@ class AdvancedNetworkMonitor:
             print(f"{Colors.RED}Need at least 2 computers to run tests{Colors.END}")
             return
         
-        print(f"\n{Colors.CYAN}{'='*70}")
-        print(f"{'NETWORK PERFORMANCE TESTS':^70}")
-        print(f"{'='*70}{Colors.END}\n")
+        print(f"\n{Colors.CYAN}{'='*90}")
+        print(f"{'NETWORK PERFORMANCE TESTS':^90}")
+        print(f"{'='*90}{Colors.END}\n")
         
-        print(f"{Colors.GRAY}Legend: T=TCP U=UDP | Format: Bandwidth/Utilization% | J=Jitter L=Loss R=Retransmits{Colors.END}")
-        print(f"{Colors.GRAY}{'Connection':<30} {'TCP Test':<15} {'UDP Test':<20} {'Metrics':<15}{Colors.END}")
-        print(f"{Colors.GRAY}{'-'*70}{Colors.END}")
+        print(f"{Colors.GRAY}Legend: T=TCP U=UDP | BW/% | J=Jitter L=Loss R=Retrans | RTT=Latency CPU=Local/Remote CW=CongestionWindow MSS=MaxSegSize{Colors.END}")
+        print(f"{Colors.GRAY}{'Connection':<30} {'TCP Test':<15} {'UDP Test':<25} {'Extended Metrics':<30}{Colors.END}")
+        print(f"{Colors.GRAY}{'-'*90}{Colors.END}")
         
         # Run comprehensive tests for each pair
         test_count = 0
@@ -519,9 +573,9 @@ class AdvancedNetworkMonitor:
                 test_count += 1
                 self.run_comprehensive_test(self.computers[i], self.computers[j])
         
-        print(f"\n{Colors.CYAN}{'='*70}")
-        print(f"{'TESTS COMPLETE':^70}")
-        print(f"{'='*70}{Colors.END}")
+        print(f"\n{Colors.CYAN}{'='*90}")
+        print(f"{'TESTS COMPLETE':^90}")
+        print(f"{'='*90}{Colors.END}")
         
         # Summary
         print(f"\n{Colors.GRAY}Key Indicators:{Colors.END}")
