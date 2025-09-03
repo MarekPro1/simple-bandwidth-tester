@@ -29,19 +29,27 @@
       "link_speed": "10Gbps"
     },
     {
-      "name": "resolume-bridge",
+      "name": "resolume-snv",
       "ip": "10.77.9.201",
       "type": "computer",
       "location": "stage",
       "link_speed": "2.5Gbps"
     },
     {
-      "name": "strih-pc",
+      "name": "strih-snv",
       "ip": "10.77.9.202",
       "type": "computer",
       "location": "foh2",
       "link_speed": "10Gbps"
+    },
+    {
+      "name": "songs-snv",
+      "ip": "10.77.9.212",
+      "type": "computer",
+      "location": "foh1",
+      "link_speed": "1Gbps"
     }
+
   ],
   "test_settings": {
     "expected_bandwidth_mbps": 1000,

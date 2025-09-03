@@ -59,10 +59,16 @@ Edit `network_config.json` to add your devices:
 
 ## Usage
 
-Run the bandwidth test:
+Run the bandwidth test with credentials:
 
 ```bash
-python simple_bandwidth_test.py
+python simple_bandwidth_test.py -u admin -p your_password
+```
+
+Or with a custom config file:
+
+```bash
+python simple_bandwidth_test.py -u admin -p your_password -c custom_config.json
 ```
 
 ## Output Example
@@ -76,19 +82,11 @@ Computer2->Computer1      :  2361.00 Mbps [OK]
 ============================================================
 ```
 
-## SSH Credentials
+## Command Line Arguments
 
-The script uses environment variables for security:
-
-```bash
-# Windows
-set SSH_USERNAME=admin
-set SSH_PASSWORD=your_password
-
-# Linux/Mac
-export SSH_USERNAME=admin
-export SSH_PASSWORD=your_password
-```
+- `-u, --username`: SSH username (required)
+- `-p, --password`: SSH password (required)
+- `-c, --config`: Config file path (optional, default: network_config.json)
 
 **IMPORTANT**: Never commit passwords to version control!
 

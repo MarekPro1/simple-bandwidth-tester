@@ -8,14 +8,12 @@ import paramiko
 import json
 import time
 import sys
-
-# SSH Credentials - DO NOT HARDCODE IN PRODUCTION
-import os
-USERNAME = os.getenv('SSH_USERNAME', 'admin')
-PASSWORD = os.getenv('SSH_PASSWORD', '')  # Must be set as environment variable
+import argparse
 
 class SimpleBandwidthTester:
-    def __init__(self, config_file="network_config.json"):
+    def __init__(self, username, password, config_file="network_config.json"):
+        self.username = username
+        self.password = password
         self.config_file = config_file
         self.computers = []
         self.load_config()
@@ -39,12 +37,56 @@ class SimpleBandwidthTester:
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         try:
-            ssh.connect(ip, username=USERNAME, password=PASSWORD, timeout=10)
+            ssh.connect(ip, username=self.username, password=self.password, timeout=10)
             return ssh
         except Exception as e:
             print(f"  Failed to connect to {ip}: {e}")
             return None
             
+    def check_and_install_iperf(self, ssh, computer_name):
+        """Check if iperf3 is installed and install it if not"""
+        # Check common iperf3 locations
+        iperf_locations = [
+            r'C:\iperf3\iperf3.19.1_64\iperf3.exe',
+            r'C:\iperf3\iperf3.exe',
+            r'C:\Program Files\iperf3\iperf3.exe'
+        ]
+        
+        for path in iperf_locations:
+            stdin, stdout, stderr = ssh.exec_command(f'if exist "{path}" echo FOUND:{path}')
+            result = stdout.read().decode().strip()
+            if result.startswith("FOUND:"):
+                return path
+        
+        # iperf3 not found, attempt to install it
+        print(f"  iperf3 not found on {computer_name}, attempting to install...")
+        
+        # Create iperf3 directory
+        ssh.exec_command('mkdir C:\\iperf3 2>nul')
+        time.sleep(1)
+        
+        # Download iperf3 using PowerShell
+        download_cmd = '''powershell -Command "
+        $url = 'https://github.com/ar51an/iperf3-win-builds/releases/download/3.19.1/iperf3.19.1-win64.zip'
+        $output = 'C:\\iperf3\\iperf3.zip'
+        Invoke-WebRequest -Uri $url -OutFile $output
+        Expand-Archive -Path $output -DestinationPath C:\\iperf3\\ -Force
+        "'''
+        
+        print(f"  Downloading iperf3 for {computer_name}...")
+        stdin, stdout, stderr = ssh.exec_command(download_cmd, timeout=60)
+        stdout.read()  # Wait for completion
+        
+        # Check if installation was successful
+        iperf_path = r'C:\iperf3\iperf3.19.1_64\iperf3.exe'
+        stdin, stdout, stderr = ssh.exec_command(f'if exist "{iperf_path}" echo SUCCESS')
+        if "SUCCESS" in stdout.read().decode():
+            print(f"  iperf3 successfully installed on {computer_name}")
+            return iperf_path
+        else:
+            print(f"  Failed to install iperf3 on {computer_name}")
+            return None
+    
     def start_iperf_server(self, server_ip, server_name):
         """Start iperf3 server on a computer"""
         print(f"\nStarting iperf3 server on {server_name} ({server_ip})...")
@@ -58,14 +100,9 @@ class SimpleBandwidthTester:
             ssh.exec_command("taskkill /F /IM iperf3.exe 2>nul")
             time.sleep(1)
             
-            # Use the correct iperf3 location (in subdirectory)
-            iperf_path = r'C:\iperf3\iperf3.19.1_64\iperf3.exe'
-            
-            # Verify it exists
-            stdin, stdout, stderr = ssh.exec_command(f'if exist "{iperf_path}" echo FOUND')
-            if "FOUND" not in stdout.read().decode():
-                print(f"  ERROR: iperf3 not found on {server_name}")
-                print(f"  Please install iperf3 on {server_name} first")
+            # Check and install iperf3 if needed
+            iperf_path = self.check_and_install_iperf(ssh, server_name)
+            if not iperf_path:
                 ssh.close()
                 return False
                 
@@ -99,13 +136,9 @@ class SimpleBandwidthTester:
             return None
             
         try:
-            # Use the correct iperf3 location (in subdirectory)
-            iperf_path = r'C:\iperf3\iperf3.19.1_64\iperf3.exe'
-            
-            # Verify it exists
-            stdin, stdout, stderr = ssh.exec_command(f'if exist "{iperf_path}" echo FOUND')
-            if "FOUND" not in stdout.read().decode():
-                print(f"  ERROR: iperf3 not found on {client_name}")
+            # Check and install iperf3 if needed
+            iperf_path = self.check_and_install_iperf(ssh, client_name)
+            if not iperf_path:
                 ssh.close()
                 return None
                 
@@ -220,11 +253,14 @@ class SimpleBandwidthTester:
         print("="*60)
 
 def main():
-    if not PASSWORD:
-        print("ERROR: SSH_PASSWORD environment variable not set!")
-        print("Please set it using: set SSH_PASSWORD=your_password")
-        sys.exit(1)
-    tester = SimpleBandwidthTester()
+    parser = argparse.ArgumentParser(description='Simple Bandwidth Test Tool')
+    parser.add_argument('-u', '--username', required=True, help='SSH username')
+    parser.add_argument('-p', '--password', required=True, help='SSH password')
+    parser.add_argument('-c', '--config', default='network_config.json', help='Config file (default: network_config.json)')
+    
+    args = parser.parse_args()
+    
+    tester = SimpleBandwidthTester(args.username, args.password, args.config)
     tester.run_all_tests()
 
 if __name__ == "__main__":
