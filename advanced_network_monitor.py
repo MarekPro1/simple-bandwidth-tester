@@ -331,14 +331,10 @@ class AdvancedNetworkMonitor:
     
     def display_compact_results(self, test_results, name1, name2):
         """Display test results in compact table format"""
-        print(f"\n{Colors.BLUE}{'-'*70}{Colors.END}")
-        print(f"{Colors.BOLD}  Testing: {name1} <-> {name2}{Colors.END}")
-        print(f"{Colors.BLUE}{'-'*70}{Colors.END}")
+        print()  # Just a blank line between test pairs
         
         # Display each connection's results
         for connection in set([k for t in test_results.values() for k in t.keys()]):
-            output = f"  {Colors.WHITE}{connection:<30}{Colors.END}  "
-            
             # TCP results
             if connection in test_results['tcp']:
                 result, max_speed = test_results['tcp'][connection]
@@ -352,20 +348,31 @@ class AdvancedNetworkMonitor:
                     color = Colors.YELLOW
                 else:
                     color = Colors.RED
-                    
-                output += f"{color}{bandwidth:>6.0f}M ({util:>3.0f}%){Colors.END} "
+                
+                output = f"  {Colors.GRAY}[TCP]{Colors.END} {Colors.WHITE}{connection:<30}{Colors.END} "
+                output += f"{color}{bandwidth:>6.0f}M ({util:>3.0f}%){Colors.END}"
                 
                 # Add retransmits if present
                 if result.get('retransmits') is not None and result['retransmits'] > 0:
-                    output += f"{Colors.YELLOW}R:{result['retransmits']}{Colors.END} "
-            else:
-                output += f"{'---':>7} "
+                    output += f" {Colors.YELLOW}Retrans:{result['retransmits']}{Colors.END}"
+                    
+                print(output)
             
-            # Jitter results
+            # UDP/Jitter results
             if connection in test_results['udp_jitter']:
-                result, _ = test_results['udp_jitter'][connection]
+                result, max_speed = test_results['udp_jitter'][connection]
+                bandwidth = result.get('bandwidth', 0)
+                util = (bandwidth / max_speed) * 100
                 jitter = result.get('jitter', 0)
                 loss = result.get('packet_loss', 0)
+                
+                # Bandwidth color
+                if util >= 90:
+                    bw_color = Colors.GREEN
+                elif util >= 70:
+                    bw_color = Colors.YELLOW
+                else:
+                    bw_color = Colors.RED
                 
                 # Jitter color (Dante needs <1ms, NDI <5ms)
                 if jitter < 1:
@@ -375,13 +382,15 @@ class AdvancedNetworkMonitor:
                 else:
                     j_color = Colors.RED
                     
-                output += f"J:{j_color}{jitter:.2f}ms{Colors.END} "
+                output = f"  {Colors.GRAY}[UDP]{Colors.END} {Colors.WHITE}{connection:<30}{Colors.END} "
+                output += f"{bw_color}{bandwidth:>6.0f}M ({util:>3.0f}%){Colors.END}"
+                output += f" Jitter:{j_color}{jitter:.2f}ms{Colors.END}"
                 
-                # Packet loss (must be 0 for AV)
-                if loss > 0:
-                    output += f"{Colors.RED}L:{loss:.1f}%{Colors.END} "
-            
-            print(output)
+                # Only show packet loss if > 0
+                if loss > 0.01:  # Show if greater than 0.01%
+                    output += f" {Colors.RED}Loss:{loss:.2f}%{Colors.END}"
+                    
+                print(output)
     
     def print_test_result(self, connection, result, max_speed):
         """Print detailed test result"""
