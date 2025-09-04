@@ -598,8 +598,8 @@ class AdvancedNetworkMonitor:
             }
             
             # Get basic adapter info
-            ps_cmd = 'powershell -Command "Get-NetAdapter -Physical | Where-Object {$_.Status -eq \'Up\'} | Select-Object Name, InterfaceDescription, LinkSpeed, FullDuplex | ConvertTo-Json"'
-            stdin, stdout, stderr = ssh.exec_command(ps_cmd, timeout=10)
+            ps_cmd = 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-NetAdapter -Physical | Where-Object {$_.Status -eq \'Up\'} | Select-Object Name, InterfaceDescription, LinkSpeed, FullDuplex | ConvertTo-Json"'
+            stdin, stdout, stderr = ssh.exec_command(ps_cmd, timeout=30)
             adapter_json = stdout.read().decode()
             error = stderr.read().decode()
             
@@ -639,8 +639,8 @@ class AdvancedNetworkMonitor:
                         }
                         
                         # Check power management settings
-                        pm_cmd = f'powershell -Command "Get-NetAdapterPowerManagement -Name \'{adapter_info["name"]}\' | Select-Object AllowComputerToTurnOffDevice | ConvertTo-Json"'
-                        stdin, stdout, stderr = ssh.exec_command(pm_cmd, timeout=10)
+                        pm_cmd = f'powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-NetAdapterPowerManagement -Name \'{adapter_info["name"]}\' | Select-Object AllowComputerToTurnOffDevice | ConvertTo-Json"'
+                        stdin, stdout, stderr = ssh.exec_command(pm_cmd, timeout=30)
                         pm_output = stdout.read().decode()
                         
                         if pm_output:
@@ -655,8 +655,8 @@ class AdvancedNetworkMonitor:
                                 adapter_info['settings']['power_management'] = 'Unknown'
                         
                         # Check EEE/Green Ethernet settings
-                        eee_cmd = f'powershell -Command "Get-NetAdapterAdvancedProperty -Name \'{adapter_info["name"]}\' | Where-Object {{$_.DisplayName -like \'*Energy*\' -or $_.DisplayName -like \'*EEE*\' -or $_.DisplayName -like \'*Green*\'}} | Select-Object DisplayName, DisplayValue | ConvertTo-Json"'
-                        stdin, stdout, stderr = ssh.exec_command(eee_cmd, timeout=10)
+                        eee_cmd = f'powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-NetAdapterAdvancedProperty -Name \'{adapter_info["name"]}\' | Where-Object {{$_.DisplayName -like \'*Energy*\' -or $_.DisplayName -like \'*EEE*\' -or $_.DisplayName -like \'*Green*\'}} | Select-Object DisplayName, DisplayValue | ConvertTo-Json"'
+                        stdin, stdout, stderr = ssh.exec_command(eee_cmd, timeout=30)
                         eee_output = stdout.read().decode()
                         
                         if eee_output:
@@ -677,8 +677,8 @@ class AdvancedNetworkMonitor:
                                 pass
                         
                         # Check Jumbo Frames
-                        jumbo_cmd = f'powershell -Command "Get-NetAdapterAdvancedProperty -Name \'{adapter_info["name"]}\' | Where-Object {{$_.DisplayName -like \'*Jumbo*\' -or $_.DisplayName -like \'*MTU*\'}} | Select-Object DisplayName, DisplayValue | ConvertTo-Json"'
-                        stdin, stdout, stderr = ssh.exec_command(jumbo_cmd, timeout=10)
+                        jumbo_cmd = f'powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-NetAdapterAdvancedProperty -Name \'{adapter_info["name"]}\' | Where-Object {{$_.DisplayName -like \'*Jumbo*\' -or $_.DisplayName -like \'*MTU*\'}} | Select-Object DisplayName, DisplayValue | ConvertTo-Json"'
+                        stdin, stdout, stderr = ssh.exec_command(jumbo_cmd, timeout=30)
                         jumbo_output = stdout.read().decode()
                         
                         if jumbo_output:
@@ -793,7 +793,7 @@ class AdvancedNetworkMonitor:
         print(f"{'='*90}{Colors.END}\n")
         
         if all_warnings:
-            print(f"{Colors.YELLOW}⚠ Issues Found:{Colors.END}")
+            print(f"{Colors.YELLOW}[!] Issues Found:{Colors.END}")
             for warning in all_warnings:
                 print(f"  - {warning}")
             print(f"\n{Colors.GRAY}Recommendations:{Colors.END}")
