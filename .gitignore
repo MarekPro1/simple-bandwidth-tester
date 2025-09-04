@@ -23,9 +23,18 @@ venv/
 # Logs
 *.log
 
-# Test results
+# Test results and diagnostic files
 *_results_*.json
 test_*.json
+*_test.json
+iperf3_output.json
+diagnose_*.py
+verify_*.py
+fix_*.py
+check_*.py
+find_*.py
+*_mbc*.py
+*_mbc*.json
 
 # Config backups
 *.bak
