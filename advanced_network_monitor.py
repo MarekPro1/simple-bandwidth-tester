@@ -582,6 +582,227 @@ class AdvancedNetworkMonitor:
         print(f"  {Colors.GREEN}Green{Colors.END}: Excellent (>90% bandwidth, <1ms jitter)")
         print(f"  {Colors.YELLOW}Yellow{Colors.END}: Acceptable (70-90% bandwidth, <5ms jitter)")
         print(f"  {Colors.RED}Red{Colors.END}: Issues detected (check loss/retransmits)")
+    
+    def check_adapter_settings(self, computer_ip, computer_name):
+        """Check network adapter settings for optimal AV network performance"""
+        ssh = self.ssh_connect(computer_ip, show_error=True)
+        if not ssh:
+            return None
+        
+        try:
+            results = {
+                'name': computer_name,
+                'ip': computer_ip,
+                'adapters': [],
+                'warnings': []
+            }
+            
+            # Get basic adapter info
+            ps_cmd = 'powershell -Command "Get-NetAdapter -Physical | Where-Object {$_.Status -eq \'Up\'} | Select-Object Name, InterfaceDescription, LinkSpeed, FullDuplex | ConvertTo-Json"'
+            stdin, stdout, stderr = ssh.exec_command(ps_cmd, timeout=10)
+            adapter_json = stdout.read().decode()
+            error = stderr.read().decode()
+            
+            # Check if access is denied
+            if ('Access denied' in error or 'Access is denied' in error or 
+                'cannot be loaded' in error or not adapter_json):
+                # PowerShell/WMI access denied - return limited info
+                results['warnings'].append(f"Limited access - cannot check adapter settings (requires elevated permissions)")
+                results['adapters'].append({
+                    'name': 'Unknown',
+                    'description': 'Access Denied',
+                    'link_speed': 'Unknown',
+                    'full_duplex': True,
+                    'settings': {
+                        'power_management': 'Unable to check',
+                        'eee': 'Unable to check',
+                        'jumbo_frames': 'Unable to check'
+                    }
+                })
+                ssh.close()
+                return results
+            
+            if adapter_json:
+                try:
+                    import json
+                    adapters = json.loads(adapter_json)
+                    if not isinstance(adapters, list):
+                        adapters = [adapters]
+                    
+                    for adapter in adapters:
+                        adapter_info = {
+                            'name': adapter.get('Name', 'Unknown'),
+                            'description': adapter.get('InterfaceDescription', ''),
+                            'link_speed': adapter.get('LinkSpeed', 'Unknown'),
+                            'full_duplex': adapter.get('FullDuplex', True),
+                            'settings': {}
+                        }
+                        
+                        # Check power management settings
+                        pm_cmd = f'powershell -Command "Get-NetAdapterPowerManagement -Name \'{adapter_info["name"]}\' | Select-Object AllowComputerToTurnOffDevice | ConvertTo-Json"'
+                        stdin, stdout, stderr = ssh.exec_command(pm_cmd, timeout=10)
+                        pm_output = stdout.read().decode()
+                        
+                        if pm_output:
+                            try:
+                                pm_data = json.loads(pm_output)
+                                power_mgmt = pm_data.get('AllowComputerToTurnOffDevice', 'Unknown')
+                                adapter_info['settings']['power_management'] = power_mgmt
+                                
+                                if power_mgmt == 'Enabled' or power_mgmt == True:
+                                    results['warnings'].append(f"{adapter_info['name']}: Power saving enabled (can cause dropouts)")
+                            except:
+                                adapter_info['settings']['power_management'] = 'Unknown'
+                        
+                        # Check EEE/Green Ethernet settings
+                        eee_cmd = f'powershell -Command "Get-NetAdapterAdvancedProperty -Name \'{adapter_info["name"]}\' | Where-Object {{$_.DisplayName -like \'*Energy*\' -or $_.DisplayName -like \'*EEE*\' -or $_.DisplayName -like \'*Green*\'}} | Select-Object DisplayName, DisplayValue | ConvertTo-Json"'
+                        stdin, stdout, stderr = ssh.exec_command(eee_cmd, timeout=10)
+                        eee_output = stdout.read().decode()
+                        
+                        if eee_output:
+                            try:
+                                eee_data = json.loads(eee_output)
+                                if not isinstance(eee_data, list):
+                                    eee_data = [eee_data] if eee_data else []
+                                
+                                for setting in eee_data:
+                                    name = setting.get('DisplayName', '')
+                                    value = setting.get('DisplayValue', '')
+                                    
+                                    if 'energy' in name.lower() or 'eee' in name.lower() or 'green' in name.lower():
+                                        adapter_info['settings']['eee'] = value
+                                        if value.lower() in ['enabled', 'on', 'yes', 'true']:
+                                            results['warnings'].append(f"{adapter_info['name']}: {name} is {value} (incompatible with Dante/NDI)")
+                            except:
+                                pass
+                        
+                        # Check Jumbo Frames
+                        jumbo_cmd = f'powershell -Command "Get-NetAdapterAdvancedProperty -Name \'{adapter_info["name"]}\' | Where-Object {{$_.DisplayName -like \'*Jumbo*\' -or $_.DisplayName -like \'*MTU*\'}} | Select-Object DisplayName, DisplayValue | ConvertTo-Json"'
+                        stdin, stdout, stderr = ssh.exec_command(jumbo_cmd, timeout=10)
+                        jumbo_output = stdout.read().decode()
+                        
+                        if jumbo_output:
+                            try:
+                                jumbo_data = json.loads(jumbo_output)
+                                if jumbo_data:
+                                    if not isinstance(jumbo_data, list):
+                                        jumbo_data = [jumbo_data]
+                                    for setting in jumbo_data:
+                                        if 'jumbo' in setting.get('DisplayName', '').lower():
+                                            adapter_info['settings']['jumbo_frames'] = setting.get('DisplayValue', 'Unknown')
+                            except:
+                                pass
+                        
+                        results['adapters'].append(adapter_info)
+                        
+                except Exception as e:
+                    if self.verbose:
+                        print(f"  {Colors.RED}[DEBUG] Error parsing adapter data: {e}{Colors.END}")
+            
+            ssh.close()
+            return results
+            
+        except Exception as e:
+            if self.verbose:
+                print(f"  {Colors.RED}[DEBUG] Error checking adapter settings: {e}{Colors.END}")
+            ssh.close()
+            return None
+    
+    def check_all_adapters(self):
+        """Check network adapter settings on all computers"""
+        print(f"\n{Colors.CYAN}{'='*90}")
+        print(f"{'NETWORK ADAPTER CONFIGURATION CHECK':^90}")
+        print(f"{'='*90}{Colors.END}\n")
+        
+        # Header
+        print(f"{Colors.GRAY}{'Computer':<20} {'Speed':<12} {'PowerMgmt':<12} {'EEE/Green':<12} {'Jumbo':<10} {'Status':<20}{Colors.END}")
+        print(f"{Colors.GRAY}{'-'*90}{Colors.END}")
+        
+        all_warnings = []
+        
+        for computer in self.computers:
+            results = self.check_adapter_settings(computer['ip'], computer['name'])
+            
+            if results and results['adapters']:
+                for adapter in results['adapters']:
+                    # Build compact row
+                    row = f"{Colors.WHITE}{computer['name']:<20}{Colors.END} "
+                    
+                    # Link speed
+                    speed = adapter['link_speed']
+                    if speed == 'Unknown':
+                        speed_str = "Access Denied"
+                        speed_color = Colors.YELLOW
+                    elif '10 Gbps' in speed:
+                        speed_str = "10Gbps"
+                        speed_color = Colors.GREEN
+                    elif '2.5 Gbps' in speed:
+                        speed_str = "2.5Gbps"
+                        speed_color = Colors.GREEN
+                    elif '1 Gbps' in speed:
+                        speed_str = "1Gbps"
+                        speed_color = Colors.GREEN
+                    else:
+                        speed_str = speed[:10] if len(speed) > 10 else speed
+                        speed_color = Colors.YELLOW
+                    row += f"{speed_color}{speed_str:<12}{Colors.END} "
+                    
+                    # Power Management
+                    pm_status = adapter['settings'].get('power_management', 'Unknown')
+                    if pm_status in ['Disabled', 'NotSupported', False]:
+                        row += f"{Colors.GREEN}{'Disabled':<12}{Colors.END} "
+                    elif pm_status in ['Enabled', True]:
+                        row += f"{Colors.RED}{'Enabled':<12}{Colors.END} "
+                        all_warnings.append(f"{computer['name']}: Power saving enabled")
+                    else:
+                        row += f"{Colors.GRAY}{'Unknown':<12}{Colors.END} "
+                    
+                    # EEE/Green Ethernet
+                    eee_status = adapter['settings'].get('eee', 'Not Found')
+                    if eee_status.lower() in ['disabled', 'off', 'no', 'false']:
+                        row += f"{Colors.GREEN}{'Disabled':<12}{Colors.END} "
+                    elif eee_status.lower() in ['enabled', 'on', 'yes', 'true']:
+                        row += f"{Colors.RED}{'Enabled':<12}{Colors.END} "
+                        all_warnings.append(f"{computer['name']}: EEE/Green enabled")
+                    else:
+                        row += f"{Colors.GRAY}{'-':<12}{Colors.END} "
+                    
+                    # Jumbo Frames
+                    jumbo_status = adapter['settings'].get('jumbo_frames', 'Not Found')
+                    if jumbo_status != 'Not Found':
+                        if 'disabled' in jumbo_status.lower():
+                            row += f"{Colors.GREEN}{'Disabled':<10}{Colors.END} "
+                        else:
+                            row += f"{Colors.YELLOW}{jumbo_status[:9]:<10}{Colors.END} "
+                    else:
+                        row += f"{Colors.GRAY}{'-':<10}{Colors.END} "
+                    
+                    # Overall status
+                    if not any(w.startswith(computer['name']) for w in all_warnings):
+                        row += f"{Colors.GREEN}OK{Colors.END}"
+                    else:
+                        row += f"{Colors.YELLOW}! Check settings{Colors.END}"
+                    
+                    print(row)
+            else:
+                print(f"{Colors.WHITE}{computer['name']:<20}{Colors.END} {Colors.RED}{'Connection failed':<60}{Colors.END}")
+        
+        # Summary
+        print(f"\n{Colors.CYAN}{'='*90}")
+        print(f"{'CONFIGURATION SUMMARY':^90}")
+        print(f"{'='*90}{Colors.END}\n")
+        
+        if all_warnings:
+            print(f"{Colors.YELLOW}⚠ Issues Found:{Colors.END}")
+            for warning in all_warnings:
+                print(f"  - {warning}")
+            print(f"\n{Colors.GRAY}Recommendations:{Colors.END}")
+            print(f"  1. Disable 'Allow computer to turn off device' in adapter properties")
+            print(f"  2. Disable Energy Efficient Ethernet (EEE/Green Ethernet)")
+            print(f"  3. For NDI: Disable Jumbo Frames to avoid fragmentation")
+            print(f"  4. Ensure all adapters are set to 1Gbps Full Duplex or higher")
+        else:
+            print(f"{Colors.GREEN}[OK] All network adapters are optimally configured!{Colors.END}")
 
 def main():
     parser = argparse.ArgumentParser(description='Advanced Network Monitoring Tool')
@@ -592,11 +813,25 @@ def main():
     parser.add_argument('--duration', type=int, default=10, help='Test duration in seconds')
     parser.add_argument('--parallel', type=int, help='Number of parallel streams')
     parser.add_argument('--udp', action='store_true', help='Run UDP tests')
+    parser.add_argument('--check-adapters', action='store_true', help='Check network adapter configurations')
+    parser.add_argument('--adapters-only', action='store_true', help='Only check adapters, skip bandwidth tests')
     
     args = parser.parse_args()
     
     monitor = AdvancedNetworkMonitor(args.username, args.password, args.config, args.verbose)
-    monitor.run_all_tests()
+    
+    if args.adapters_only:
+        # Only check adapter settings
+        monitor.check_all_adapters()
+    elif args.check_adapters:
+        # Check adapters then run tests
+        monitor.check_all_adapters()
+        print(f"\n{Colors.CYAN}{'='*90}{Colors.END}")
+        print(f"{Colors.BOLD}Proceeding with bandwidth tests...{Colors.END}\n")
+        monitor.run_all_tests()
+    else:
+        # Just run bandwidth tests
+        monitor.run_all_tests()
 
 if __name__ == "__main__":
     main()
