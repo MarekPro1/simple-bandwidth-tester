@@ -874,7 +874,7 @@ def main():
     parser.add_argument('--duration', type=int, default=10, help='Test duration in seconds')
     parser.add_argument('--parallel', type=int, help='Number of parallel streams')
     parser.add_argument('--udp', action='store_true', help='Run UDP tests')
-    parser.add_argument('--check-adapters', action='store_true', help='Check network adapter configurations')
+    parser.add_argument('--no-adapter-check', action='store_true', help='Skip network adapter configuration check')
     parser.add_argument('--adapters-only', action='store_true', help='Only check adapters, skip bandwidth tests')
     
     args = parser.parse_args()
@@ -884,14 +884,14 @@ def main():
     if args.adapters_only:
         # Only check adapter settings
         monitor.check_all_adapters()
-    elif args.check_adapters:
-        # Check adapters then run tests
+    elif args.no_adapter_check:
+        # Skip adapter check and just run bandwidth tests
+        monitor.run_all_tests()
+    else:
+        # Default: Check adapters first, then run tests
         monitor.check_all_adapters()
         print(f"\n{Colors.CYAN}{'='*90}{Colors.END}")
         print(f"{Colors.BOLD}Proceeding with bandwidth tests...{Colors.END}\n")
-        monitor.run_all_tests()
-    else:
-        # Just run bandwidth tests
         monitor.run_all_tests()
 
 if __name__ == "__main__":
