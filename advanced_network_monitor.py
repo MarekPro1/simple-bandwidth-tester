@@ -597,8 +597,8 @@ class AdvancedNetworkMonitor:
                 'warnings': []
             }
             
-            # Get basic adapter info
-            ps_cmd = 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-NetAdapter -Physical | Where-Object {$_.Status -eq \'Up\'} | Select-Object Name, InterfaceDescription, LinkSpeed, FullDuplex | ConvertTo-Json"'
+            # Get all network adapters (including WiFi)
+            ps_cmd = 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-NetAdapter | Select-Object Name, InterfaceDescription, Status, LinkSpeed, FullDuplex, MediaType, PhysicalMediaType | ConvertTo-Json"'
             stdin, stdout, stderr = ssh.exec_command(ps_cmd, timeout=30)
             adapter_json = stdout.read().decode()
             error = stderr.read().decode()
@@ -630,9 +630,46 @@ class AdvancedNetworkMonitor:
                         adapters = [adapters]
                     
                     for adapter in adapters:
+                        name = adapter.get('Name', 'Unknown')
+                        desc = adapter.get('InterfaceDescription', '')
+                        status = adapter.get('Status', '')
+                        media = adapter.get('PhysicalMediaType', '')
+                        
+                        # Check if it's a WiFi adapter
+                        is_wifi = False
+                        if 'Wi-Fi' in name or 'WiFi' in name or 'Wireless' in desc or 'Wi-Fi' in desc:
+                            is_wifi = True
+                        elif media and ('wireless' in media.lower() or '802.11' in media.lower()):
+                            is_wifi = True
+                        
+                        # Skip disconnected adapters unless they're WiFi (we want to show WiFi even if disabled)
+                        if status != 'Up' and not is_wifi:
+                            continue
+                        
+                        # For WiFi adapters, warn if they're enabled
+                        if is_wifi:
+                            if status == 'Up':
+                                results['warnings'].append(f"{name}: WiFi adapter is ENABLED (should be disabled for AV networks)")
+                            # Add WiFi adapter info even if disabled to show it's properly configured
+                            adapter_info = {
+                                'name': name,
+                                'description': desc,
+                                'link_speed': 'WiFi - ' + ('ENABLED' if status == 'Up' else 'Disabled'),
+                                'full_duplex': True,
+                                'settings': {
+                                    'power_management': 'N/A',
+                                    'eee': 'N/A',
+                                    'jumbo_frames': 'N/A',
+                                    'wifi_status': status
+                                }
+                            }
+                            results['adapters'].append(adapter_info)
+                            continue
+                        
+                        # For Ethernet adapters
                         adapter_info = {
-                            'name': adapter.get('Name', 'Unknown'),
-                            'description': adapter.get('InterfaceDescription', ''),
+                            'name': name,
+                            'description': desc,
                             'link_speed': adapter.get('LinkSpeed', 'Unknown'),
                             'full_duplex': adapter.get('FullDuplex', True),
                             'settings': {}
@@ -724,13 +761,24 @@ class AdvancedNetworkMonitor:
             results = self.check_adapter_settings(computer['ip'], computer['name'])
             
             if results and results['adapters']:
+                # Add any warnings from the results
+                for warning in results.get('warnings', []):
+                    if warning not in all_warnings:
+                        all_warnings.append(warning)
+                
                 for adapter in results['adapters']:
                     # Build compact row
                     row = f"{Colors.WHITE}{computer['name']:<20}{Colors.END} "
                     
                     # Link speed
                     speed = adapter['link_speed']
-                    if speed == 'Unknown':
+                    if 'WiFi - ENABLED' in speed:
+                        speed_str = "WiFi ON"
+                        speed_color = Colors.RED
+                    elif 'WiFi - Disabled' in speed:
+                        speed_str = "WiFi OFF"
+                        speed_color = Colors.GREEN
+                    elif speed == 'Unknown':
                         speed_str = "Access Denied"
                         speed_color = Colors.YELLOW
                     elif '10 Gbps' in speed:
@@ -749,27 +797,34 @@ class AdvancedNetworkMonitor:
                     
                     # Power Management
                     pm_status = adapter['settings'].get('power_management', 'Unknown')
-                    if pm_status in ['Disabled', 'NotSupported', False]:
+                    if pm_status == 'N/A':
+                        row += f"{Colors.GRAY}{'-':<12}{Colors.END} "
+                    elif pm_status in ['Disabled', 'NotSupported', False]:
                         row += f"{Colors.GREEN}{'Disabled':<12}{Colors.END} "
                     elif pm_status in ['Enabled', True]:
                         row += f"{Colors.RED}{'Enabled':<12}{Colors.END} "
-                        all_warnings.append(f"{computer['name']}: Power saving enabled")
+                        if 'wifi_status' not in adapter['settings']:  # Don't double-warn for WiFi
+                            all_warnings.append(f"{computer['name']}: Power saving enabled on {adapter['name']}")
                     else:
                         row += f"{Colors.GRAY}{'Unknown':<12}{Colors.END} "
                     
                     # EEE/Green Ethernet
                     eee_status = adapter['settings'].get('eee', 'Not Found')
-                    if eee_status.lower() in ['disabled', 'off', 'no', 'false']:
+                    if eee_status == 'N/A':
+                        row += f"{Colors.GRAY}{'-':<12}{Colors.END} "
+                    elif eee_status.lower() in ['disabled', 'off', 'no', 'false']:
                         row += f"{Colors.GREEN}{'Disabled':<12}{Colors.END} "
                     elif eee_status.lower() in ['enabled', 'on', 'yes', 'true']:
                         row += f"{Colors.RED}{'Enabled':<12}{Colors.END} "
-                        all_warnings.append(f"{computer['name']}: EEE/Green enabled")
+                        all_warnings.append(f"{computer['name']}: EEE/Green enabled on {adapter['name']}")
                     else:
                         row += f"{Colors.GRAY}{'-':<12}{Colors.END} "
                     
                     # Jumbo Frames
                     jumbo_status = adapter['settings'].get('jumbo_frames', 'Not Found')
-                    if jumbo_status != 'Not Found':
+                    if jumbo_status == 'N/A':
+                        row += f"{Colors.GRAY}{'-':<10}{Colors.END} "
+                    elif jumbo_status != 'Not Found':
                         if 'disabled' in jumbo_status.lower():
                             row += f"{Colors.GREEN}{'Disabled':<10}{Colors.END} "
                         else:
@@ -778,7 +833,12 @@ class AdvancedNetworkMonitor:
                         row += f"{Colors.GRAY}{'-':<10}{Colors.END} "
                     
                     # Overall status
-                    if not any(w.startswith(computer['name']) for w in all_warnings):
+                    wifi_status = adapter['settings'].get('wifi_status', None)
+                    if wifi_status == 'Up':
+                        row += f"{Colors.RED}WiFi ENABLED!{Colors.END}"
+                    elif wifi_status in ['Disconnected', 'Not Present']:
+                        row += f"{Colors.GREEN}WiFi disabled{Colors.END}"
+                    elif not any(w.startswith(computer['name']) for w in all_warnings):
                         row += f"{Colors.GREEN}OK{Colors.END}"
                     else:
                         row += f"{Colors.YELLOW}! Check settings{Colors.END}"
@@ -797,10 +857,11 @@ class AdvancedNetworkMonitor:
             for warning in all_warnings:
                 print(f"  - {warning}")
             print(f"\n{Colors.GRAY}Recommendations:{Colors.END}")
-            print(f"  1. Disable 'Allow computer to turn off device' in adapter properties")
-            print(f"  2. Disable Energy Efficient Ethernet (EEE/Green Ethernet)")
-            print(f"  3. For NDI: Disable Jumbo Frames to avoid fragmentation")
-            print(f"  4. Ensure all adapters are set to 1Gbps Full Duplex or higher")
+            print(f"  1. Disable all WiFi adapters for AV networks")
+            print(f"  2. Disable 'Allow computer to turn off device' in adapter properties")
+            print(f"  3. Disable Energy Efficient Ethernet (EEE/Green Ethernet)")
+            print(f"  4. For NDI: Disable Jumbo Frames to avoid fragmentation")
+            print(f"  5. Ensure all adapters are set to 1Gbps Full Duplex or higher")
         else:
             print(f"{Colors.GREEN}[OK] All network adapters are optimally configured!{Colors.END}")
 
